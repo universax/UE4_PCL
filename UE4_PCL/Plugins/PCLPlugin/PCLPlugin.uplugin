@@ -1,0 +1,18 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0",
+  "FriendlyName": "PCLPlugin",
+  "Description": "PCLPlugin",
+  "Category": "PCLPlugin",
+  "CreatedBy": "Yohei Kajiwara",
+  "EnabledByDefault": true,
+  "Modules": [
+    {
+      "Name": "PCLPlugin",
+      "Type": "Runtime",
+      "LoadingPhase": "PreDefault"
+    }
+  ],
+  "CanContainContent": false
+}
