@@ -64,7 +64,7 @@ DEFINE_LOG_CATEGORY(PCLPlugin);
 //--------------------------------------------------------------------------------------
 boost::shared_ptr<pcl::VLPGrabber> mVlpGrabber;
 pcl::PointCloud<pcl::PointXYZI>::ConstPtr mVLPCloud;
-pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud;
+pcl::PointCloud<pcl::PointXYZ>::Ptr mInputCloud;
 pcl::PointCloud<pcl::PointXYZ> pcdCloud;
 boost::signals2::connection mConnection;
 boost::mutex mVLPMutex;
@@ -196,7 +196,7 @@ void UPCL_BPLibrary::StopVLP() {
 //--------------------------------------------------------------------------------------
 void UPCL_BPLibrary::UpdatePoints(TArray<FVector> Points)
 {
-	inputCloud.reset(new pcl::PointCloud<pcl::PointXYZ>());
+	mInputCloud.reset(new pcl::PointCloud<pcl::PointXYZ>());
 	for (auto &p : Points)
 	{
 		pcl::PointXYZ point;
@@ -204,12 +204,21 @@ void UPCL_BPLibrary::UpdatePoints(TArray<FVector> Points)
 		point.y = p.Y;
 		point.z = p.Z;
 
-		inputCloud->points.push_back(point);
+		mInputCloud->points.push_back(point);
+	}
+	if (!mInputCloud)
+	{
+		return;
 	}
 
-	if (inputCloud->points.size() > 0)
+	if (mInputCloud->points.size() > 0)
 	{
 		IsEnableSensor = true;
+		calcCloud.reset(new pcl::PointCloud<pcl::PointXYZ>());
+		pcl::copyPointCloud(*mInputCloud, *calcCloud);
+
+		//PointSize
+		NumPointCloud = calcCloud->points.size();
 	}
 }
 
@@ -282,6 +291,13 @@ int UPCL_BPLibrary::GetNumPoints()
 	return NumPointCloud;
 }
 
+FVector UPCL_BPLibrary::GetInputRange()
+{
+	FVector val;
+	val.X = minInputVal;
+	val.Y = maxInputVal;
+	return val;
+}
 
 //--------------------------------------------------------------------------------------
 //	Dynamic Texture
@@ -304,33 +320,14 @@ void UPCL_BPLibrary::InitDynamicTextureResorces() {
 }
 
 void UPCL_BPLibrary::Update() {
-	if (!inputCloud)
-	{
-		return;
-	}
-	calcCloud.reset(new pcl::PointCloud<pcl::PointXYZ>());
-	//mVLPMutex.lock();
-	//pcl::copyPointCloud(*inputCloud, *calcCloud);
-	//mVLPMutex.unlock();
 
-	pcl::copyPointCloud(*inputCloud, *calcCloud);
-
-	//VoxelFilter
-	//voxelGridFilter(InputVoxelSize, calcCloud);
-
-	//Transform
-	transformToZeroPoint(calcCloud, Sensor, calcCloud);
-
-	//PassthroughFilter
-	passThroughFilter(calcCloud, "x", Sensor.RangeX.Min, Sensor.RangeX.Max);
-	passThroughFilter(calcCloud, "y", Sensor.RangeY.Min, Sensor.RangeY.Max);
-	passThroughFilter(calcCloud, "z", Sensor.RangeZ.Min, Sensor.RangeZ.Max);
-
-	//PointSize
-	NumPointCloud = calcCloud->points.size();
 }
 
 void UPCL_BPLibrary::UpdatePointCloudTextures() {
+	if (!calcCloud)
+	{
+		return;
+	}
 	//初回だけテクスチャ周りをイニシャライズしておく
 	if (!DidDynamicTextureInit)
 	{
@@ -341,21 +338,41 @@ void UPCL_BPLibrary::UpdatePointCloudTextures() {
 	//Nullチェック
 	if (!PointCloudTexture_Div || !PointCloudTexture_Mod)
 	{
-		//UE_LOG(PCLPlugin, Error, TEXT("ERROR: PointCloudTexture is null"));
+		UE_LOG(PCLPlugin, Error, TEXT("ERROR: PointCloudTexture is null"));
 		return;
 	}
 
 	//Filter
 	pcl::PointCloud<pcl::PointXYZ>::Ptr tmpCloud(new pcl::PointCloud<pcl::PointXYZ>());
 	pcl::copyPointCloud(*calcCloud, *tmpCloud);
-	voxelGridFilter(TextureVoxelSize, tmpCloud);
-	statisticalOutlierFilter(tmpCloud);
+	//voxelGridFilter(TextureVoxelSize, tmpCloud);
+	//statisticalOutlierFilter(tmpCloud);
+
 
 	int np = tmpCloud->points.size();
 	if (np > 0)
 	{
 		//ポイントクラウドを最大サイズにリサイズして後ろの空白埋めるなり、余りをクロップスるなりする
 		int numEnableMaxPoint = TextureSize.X * TextureSize.Y;
+
+		//Get max and min value
+		maxInputVal = tmpCloud->points[0].x;
+		minInputVal = tmpCloud->points[0].x;
+		for (int i = 0; i < numEnableMaxPoint; i++)
+		{
+			if (i < np)
+			{
+				// max
+				if (maxInputVal < tmpCloud->points[i].x) maxInputVal = tmpCloud->points[i].x;
+				if (maxInputVal < tmpCloud->points[i].y) maxInputVal = tmpCloud->points[i].y;
+				if (maxInputVal < tmpCloud->points[i].z) maxInputVal = tmpCloud->points[i].z;
+
+				// min
+				if (minInputVal > tmpCloud->points[i].x) minInputVal = tmpCloud->points[i].x;
+				if (minInputVal > tmpCloud->points[i].y) minInputVal = tmpCloud->points[i].y;
+				if (minInputVal > tmpCloud->points[i].z) minInputVal = tmpCloud->points[i].z;
+			}
+		}
 
 		for (int i = 0; i < numEnableMaxPoint; i++)
 		{
@@ -370,19 +387,20 @@ void UPCL_BPLibrary::UpdatePointCloudTextures() {
 			if (i < np)
 			{
 				//m -> mm
-				uint16 x = 65280.0 * Clamp(tmpCloud->points[i].x, Sensor.RangeX.Min, Sensor.RangeX.Max);
-				uint16 y = 65280.0 * Clamp(tmpCloud->points[i].y, Sensor.RangeY.Min, Sensor.RangeY.Max);
-				uint16 z = 65280.0 * Clamp(tmpCloud->points[i].z, Sensor.RangeZ.Min, Sensor.RangeZ.Max);
+				float maxVal = 256.0 * 256.0 - 1;
+				uint16 x = maxVal * Clamp(tmpCloud->points[i].x, minInputVal, maxInputVal);
+				uint16 y = maxVal * Clamp(tmpCloud->points[i].y, minInputVal, maxInputVal);
+				uint16 z = maxVal * Clamp(tmpCloud->points[i].z, minInputVal, maxInputVal);
 
 				//商
-				x_div = uint8(x / 255);
-				y_div = uint8(y / 255);
-				z_div = uint8(z / 255);
+				x_div = uint8(x / 256);
+				y_div = uint8(y / 256);
+				z_div = uint8(z / 256);
 
 				//余
-				x_mod = x % 255;
-				y_mod = y % 255;
-				z_mod = z % 255;
+				x_mod = x % 256;
+				y_mod = y % 256;
+				z_mod = z % 256;
 			}
 			
 			PointCloudData_Div[i].R = x_div;	//x

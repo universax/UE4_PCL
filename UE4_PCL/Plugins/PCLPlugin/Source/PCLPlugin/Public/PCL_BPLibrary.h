@@ -84,7 +84,7 @@ class UPCL_BPLibrary : public UBlueprintFunctionLibrary
 
 	//General Input
 	UFUNCTION(BlueprintCallable, meta = (DisplayName = "UpdatePoints", Keywords = "Update Depth Points"), Category = "PCL")
-		static void UpdatePoints(TArray<FVector> Points);
+		void UpdatePoints(TArray<FVector> Points);
 
 	//Common
 	UFUNCTION(BlueprintCallable, meta = (DisplayName = "Update PointClouds", Keywords = "Update PointCloud Textures"), Category = "PCL")
@@ -98,6 +98,9 @@ class UPCL_BPLibrary : public UBlueprintFunctionLibrary
 
 	UFUNCTION(BlueprintCallable, meta = (DisplayName = "Get PointCloud Count", Keywords = "PCL Get Num Points"), Category = "PCL")
 		int GetNumPoints();
+
+	UFUNCTION(BlueprintCallable, meta = (DisplayName = "Get Input Range", Keywords = "PCL Get Input Range"), Category = "PCL")
+		FVector GetInputRange();
 
 
 	//RawPointCloud for 
@@ -164,6 +167,10 @@ private:
 	//PCL
 	pcl::PointCloud<pcl::PointXYZ>::Ptr calcCloud;
 
+	//Range of input pointcloud
+	float maxInputVal;
+	float minInputVal;
+
 	//Filter
 	void transformToZeroPoint(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud, FSensor& posture, pcl::PointCloud<pcl::PointXYZ>::Ptr outputCloud);
 	void passThroughFilter(pcl::PointCloud<pcl::PointXYZ>::Ptr inputCloud, const std::string &fieldName, float min, float max);
@@ -172,10 +179,11 @@ private:
 
 	//クラスタに分けるやつ
 	std::vector<pcl::PointCloud<PointType>::Ptr> eachClouds;
-	void calcCentroid();
 	void euclideanClusterExtraction(pcl::PointCloud<PointType>::Ptr cloud, std::vector<pcl::PointCloud<PointType>::Ptr> &outputCloud);
 	void splitCloud(pcl::PointCloud<PointType>::Ptr inputCloud, pcl::PointCloud<PointType>::Ptr ouputCloud, pcl::PointIndices &indices);
+
 	//重心
+	void calcCentroid();
 	std::vector<Eigen::Vector4f> centroids;
 	Eigen::Vector4f centroid(pcl::PointCloud<PointType>::Ptr cloud);
 	//z平面にプロジェクションするやつ
@@ -188,7 +196,6 @@ private:
 
 	//Actorにするポイントクラウドのトラッキング
 	std::vector<pcl::PointXYZ> actorPoints;
-	
 	void calcTrackingPoints(pcl::PointCloud<pcl::PointXYZ>::Ptr input);
 
 
@@ -207,12 +214,4 @@ private:
 	//Util
 	int NumPointCloud;
 	float Clamp(float val, float min, float max);
-
-
-	
-
-	//pcl_func::Sensor mSensor;
-//
-//	void Start();
-	//void vlpCallback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr& cloudPtr);
 };
